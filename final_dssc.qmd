@@ -1,0 +1,608 @@
+---
+title: "Final Project_Digital Strategies in Social Science"
+author: "Mishu Dhar"
+format: pdf
+editor: visual
+---
+
+## Importing Libraries
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+#| include: false
+
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(factoextra)
+library(FactoMineR)
+```
+
+# Importing dataset
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+socialism <- read.csv("/Users/mishudhar/Desktop/DSSC/Socialism/Socialism.csv")
+# checking few rows
+head(socialism)
+```
+
+```{r}
+# column names
+#colnames(socialism)
+colSums(is.na(socialism))
+```
+
+```{r}
+dim(socialism)
+```
+
+```{r}
+# filtering for selected varoables
+socialism_filtered <- socialism |>
+  select(ccode, country, exp.environment, exp.total, exp.consumption, exp.housing,
+         exp.health, exp.recreation, exp.education, soc.health, revenues, tax.supra.tot,
+         exp.socprot, population, revenues)
+colnames(socialism_filtered)
+```
+
+```{r}
+# first few rows
+head(socialism_filtered)
+```
+
+```{r}
+
+# Rename the columns in the dataframe
+socialism_filtered <- socialism_filtered %>%
+  rename(
+    population = population,
+    exp_environment = exp.environment,
+    exp_total = exp.total,
+    exp_consumption = exp.consumption,
+    exp_housing = exp.housing,
+    exp_health = exp.health,
+    exp_recreation = exp.recreation,
+    exp_education = exp.education,
+    socialSupport_health = soc.health,
+    state_tax_total = tax.supra.tot,
+    social_protection = exp.socprot,
+    revenues = revenues
+    
+  )
+
+# Calculate the missing values
+missing_values <- colSums(is.na(socialism_filtered))
+
+# Create a data frame of missing values counts
+missing_values_df <- data.frame(
+  column = names(missing_values),
+  missing_count = as.numeric(missing_values)
+)
+
+# Filter to only include columns with missing values
+missing_values_df <- missing_values_df[missing_values_df$missing_count > 0, ]
+
+# Create the bar plot
+ggplot(missing_values_df, aes(x = reorder(column, -missing_count), y = missing_count)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  coord_flip() +  # Flip coordinates for better readability
+  labs(title = "Missing Values Count by Column", x = "Columns", y = "Missing Values Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+# checking for missing values
+colSums(is.na(socialism_filtered))
+```
+
+```{r}
+# Filter the rows where the 'country' column is missing
+missing_country_rows <- socialism_filtered %>% 
+  filter(is.na(country))
+
+# Display the rows
+print(missing_country_rows)
+
+```
+
+```{r}
+
+
+# Replace the missing 'country' name where 'ccode' is 255 with "Tanzania"
+socialism_filtered <- socialism_filtered %>%
+  mutate(country = ifelse(ccode == 255 & is.na(country), "Tanzania", country))
+
+# Drop the other rows where 'country' is missing
+socialism_filtered <- socialism_filtered %>%
+  filter(!is.na(country))
+
+# Verify the changes
+print(socialism_filtered %>% filter(ccode == 255))
+print(socialism_filtered %>% filter(is.na(country)))
+
+colSums(is.na(socialism_filtered))
+```
+
+```{r}
+# Filter the rows where the 'country' column is missing
+missing_country_rows <- socialism_filtered %>% 
+  filter(is.na(population))
+
+# Display the rows
+print(missing_country_rows)
+```
+
+```{r}
+# Population data as whole numbers
+population_data <- data.frame(
+  ccode = c(344, 352, 355, 360, 365, 367, 368, 560, 710, 750, 850),
+  population = c(4050000, 1210000, 6930000, 19050000, 145930000, 1870000, 2800000, 59310000, 1439323776, 1380004385, 273523615)
+)
+
+# Merge population data with the original dataframe
+socialism_filtered <- socialism_filtered %>%
+  left_join(population_data, by = "ccode") %>%
+  mutate(population = coalesce(population.x, population.y)) %>%
+  select(-population.x, -population.y)
+
+```
+
+```{r}
+# Impute missing values by the values of the previous rows (observation)
+socialism_df <- socialism_filtered %>%
+  fill(everything(), .direction = "down")
+
+
+colSums(is.na(socialism_df))
+```
+
+```{r}
+# Calculate the mean of 'state_tax_total' excluding missing values
+mean_state_tax_total <- mean(socialism_df$state_tax_total, na.rm = TRUE)
+
+# Impute missing values with the mean for the specified rows
+socialism_df <- socialism_df %>%
+  mutate(state_tax_total = ifelse(ccode %in% c(2, 20, 70, 155) & is.na(state_tax_total), 
+                                  mean_state_tax_total, 
+                                  state_tax_total))
+
+# Verify changes
+print(socialism_df %>% filter(ccode %in% c(2, 20, 70, 155)))
+
+```
+
+```{r}
+# socialism_df <- socil
+# dropig the country code column
+socialism_df <- socialism_df |>
+  select(-ccode)
+
+```
+
+```{r}
+# for future needs 
+socialism_final <- socialism_df
+```
+
+```{r}
+# Set the 'country' column as row names and remove it from the dataframe
+row.names(socialism_df) <- socialism_df$country
+socialism_df <- socialism_df %>%
+  select(-country)
+
+# Verify the column names
+colnames(socialism_df)
+
+```
+
+```{r}
+# check the data
+head(socialism_df)
+
+```
+
+# PCA Principal Component Analysis
+
+```{r}
+# correaltion and scatterplot
+library("GGally")
+
+ggpairs(socialism_df)
+```
+
+```{r}
+#| echo: false
+#| message: false
+#| warning: false
+
+
+# Load necessary libraries
+library(GGally)
+library(ggplot2)
+
+# Adjust the plot settings for better readability
+ggpairs_plot <- ggpairs(
+  socialism_df,
+  title = "Correlation and Scatterplot Matrix",
+  upper = list(continuous = wrap("cor", size = 4)),
+  lower = list(continuous = wrap("points", size = 0.5)),
+  diag = list(continuous = wrap("barDiag", size = 3))
+) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 14)
+  )
+
+# Print the plot
+print(ggpairs_plot)
+
+# Save the plot as an image file
+ggsave("ggpairs_plot.png", plot = ggpairs_plot, width = 12, height = 12, dpi = 300)
+
+```
+
+```{r}
+# principal component analysis
+pc <- prcomp(socialism_df, center = TRUE, scale = TRUE)
+# observing the summary
+summary(pc)
+```
+
+First 8 principle components explain the 96 % of the variance of the data.
+
+```{r}
+# checking the attributes
+attributes(pc)
+```
+
+```{r}
+# loadings of the principal components
+print(pc)
+```
+
+We can see that the variables have contributed in different principal components in various ways. In some PC's they have contributed very strongly positive and in some PC's they have contributed strongly negatively.
+
+```{r}
+# scree plöt
+plot(pc)
+```
+
+```{r}
+# scree plot line
+screeplot(x = pc, type = "line", main  = "Elbow Method")
+```
+
+```{r}
+# Load necessary library
+library(factoextra)
+
+
+# Plotting eigenvalues with a title
+fviz_eig(pc) + 
+  ggtitle("Eigenvalues of Principal Components") +
+  theme_minimal()
+
+```
+
+If we take 8 PC's we will loss the 4 % of the data
+
+```{r}
+# using biplot
+biplot(pc, cex = 0.6)
+```
+
+```{r}
+# using autoplot
+library(ggfortify)
+autoplot(pc, scale = 0)
+```
+
+```{r}
+# enhancing the plot
+autoplot(pc, data = socialism_df,
+         label = TRUE,
+         label.size = 3,
+         loadings = TRUE, color = "blue",
+         loadings.label = TRUE,
+         loadings.label.size = 3,
+         repel = TRUE)
+```
+
+```{r}
+# visualizing the individuals aka countries
+fviz_pca_ind(pc,
+             col.ind = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+```
+
+```{r}
+# visualizing the variables
+fviz_pca_var(pc,
+             col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE)
+```
+
+```{r}
+# plotting both variables and individuals
+fviz_pca_biplot(pc, repel = TRUE,
+                col.var = "black",
+                col.ind = "cos2")
+```
+
+# Applying PCA to clustering
+
+```{r}
+# pca data
+pca_df <- data.frame(pc$x[, 1:8])
+head(pca_df)
+```
+
+```{r}
+# determining number of clusters
+fviz_nbclust(pca_df,
+             FUNcluster = kmeans,
+             method = "wss")
+```
+
+The elbow plot suggests that the optimal number of clusters is 5. This is identified at the point where the within-cluster sum of squares (WSS) starts to decrease at a slower rate. Beyond this point, additional clusters contribute less to the reduction in WSS, indicating diminishing returns in terms of improved clustering performance. Hence, selecting 5 clusters provides a balance between minimizing WSS and avoiding overfitting.
+
+```{r}
+
+optimal_clusters <- 5
+
+# Perform K-means clustering
+set.seed(123) # for reproducibility
+kmeans_socialism <- kmeans(pc$x[, 1:8], centers = optimal_clusters, nstart = 25)
+
+# Visualize clusters using PCA results
+fviz_pca_ind(pc,
+             geom.ind = "point", # show points only (nbut not "text")
+             col.ind = as.factor(kmeans_socialism$cluster), # color by clusters
+             palette = "jco",
+             addEllipses = TRUE, # Concentration ellipses
+             legend.title = "Clusters",
+             repel = TRUE) # Avoid text overlapping (if text labels are shown)
+
+
+```
+
+```{r}
+# Load necessary libraries
+library(factoextra)
+library(ggplot2)
+library(ggrepel)
+
+# Perform PCA
+#pc <- prcomp(socialism_df, center = TRUE, scale. = TRUE)
+
+# Perform K-means clustering
+set.seed(123) # for reproducibility
+optimal_clusters <- 3
+kmeans_socialism <- kmeans(pc$x[, 1:8], centers = optimal_clusters, nstart = 25)
+
+# Create a data frame for visualization
+pca_data <- data.frame(pc$x[, 1:2], cluster = as.factor(kmeans_socialism$cluster), country = rownames(socialism_df))
+
+# Visualize clusters with country labels
+ggplot(pca_data, aes(x = PC1, y = PC2, color = cluster, label = country)) +
+  geom_point(size = 2) +
+  geom_text_repel(size = 3, max.overlaps = 20) +
+  labs(title = "PCA Cluster Plot with Country Labels", x = "Principal Component 1", y = "Principal Component 2") +
+  theme_minimal() +
+  theme(legend.title = element_text(size = 10), legend.text = element_text(size = 8))
+
+```
+
+```{r}
+# Load necessary libraries
+library(factoextra)
+library(ggplot2)
+library(ggrepel)
+
+
+# Perform K-means clustering
+set.seed(123) # for reproducibility
+optimal_clusters <- 5
+kmeans_socialism <- kmeans(pc$x[, 1:8], centers = optimal_clusters, nstart = 25)
+
+# Create a data frame for visualization
+pca_data <- data.frame(pc$x[, 1:2], cluster = as.factor(kmeans_socialism$cluster), country = rownames(socialism_df))
+
+# Visualize clusters with country labels and ellipses
+ggplot(pca_data, aes(x = PC1, y = PC2, color = cluster, label = country)) +
+  geom_point(size = 2) +
+  geom_text_repel(size = 3, max.overlaps = 20) +
+  stat_ellipse(aes(group = cluster), type = "norm", level = 0.95) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  labs(title = "PCA Cluster Plot with Country Labels and Ellipses",
+       x = "Principal Component 1",
+       y = "Principal Component 2") +
+  theme_minimal() +
+  theme(legend.title = element_text(size = 10), legend.text = element_text(size = 8))
+
+```
+
+```{r}
+# Load necessary libraries
+library(factoextra)
+library(ggplot2)
+library(ggrepel)
+
+# Perform K-means clustering
+set.seed(123) # for reproducibility
+optimal_clusters <- 3  # Change this to 5 clusters
+kmeans_socialism <- kmeans(pc$x[, 1:8], centers = optimal_clusters, nstart = 25)
+
+# Create a data frame for visualization
+pca_data <- data.frame(pc$x[, 1:2], cluster = as.factor(kmeans_socialism$cluster), country = rownames(socialism_df))
+
+# Visualize clusters with country labels and ellipses
+ggplot(pca_data, aes(x = PC1, y = PC2, color = cluster, label = country)) +
+  geom_point(size = 2) +
+  geom_text_repel(size = 3, max.overlaps = 20) +
+  stat_ellipse(aes(group = cluster), type = "norm", level = 0.95) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey") +
+  labs(title = "PCA Cluster Plot with Country Labels and Ellipses",
+       x = "Principal Component 1",
+       y = "Principal Component 2") +
+  theme_minimal() +
+  theme(legend.title = element_text(size = 10), legend.text = element_text(size = 8))
+
+```
+
+```{r}
+# Load necessary libraries
+library(factoextra)
+library(ggplot2)
+library(ggrepel)
+
+# Perform PCA
+#pc <- prcomp(socialism_df, center = TRUE, scale. = TRUE)
+
+# Perform K-means clustering
+set.seed(123) # for reproducibility
+optimal_clusters <- 4  # Change this to 4 clusters
+kmeans_socialism <- kmeans(pc$x[, 1:8], centers = optimal_clusters, nstart = 25)
+
+# Create a data frame for visualization
+pca_data <- data.frame(pc$x[, 1:2], cluster = as.factor(kmeans_socialism$cluster), country = rownames(socialism_df))
+
+# Visualize clusters with country labels and ellipses
+ggplot(pca_data, aes(x = PC1, y = PC2, color = cluster, label = country)) +
+  geom_point(size = 2) +
+  geom_text_repel(size = 3, max.overlaps = 20) +
+  stat_ellipse(aes(group = cluster), type = "norm", level = 0.95) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey", size = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey", size = 1) +
+  labs(title = "PCA Cluster Plot with Country Labels and Ellipses",
+       x = "Principal Component 1",
+       y = "Principal Component 2") +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black", size = 0.5),
+        axis.ticks = element_line(color = "black", size = 0.5),
+        legend.title = element_text(size = 10), 
+        legend.text = element_text(size = 8))
+
+```
+
+# Hierarchical Clustering
+
+```{r}
+# Compute the distance matrix using the first 8 principal components
+distance_matrix <- dist(pc$x[, 1:8])
+# Perform hierarchical clustering using Ward's method
+hc <- hclust(distance_matrix, method = "ward.D2")
+
+```
+
+```{r}
+# Plot the dendrogram
+plot(hc, labels = rownames(socialism_df), main = "Dendrogram of Hierarchical Clustering", sub = "", xlab = "", ylab = "Height")
+
+```
+
+```{r}
+# Load necessary library
+library(cluster)
+
+# Compute the silhouette width for different numbers of clusters
+sil_width <- numeric(10)
+for (k in 2:10) {
+  pam_fit <- pam(distance_matrix, diss = TRUE, k = k)
+  sil_width[k] <- pam_fit$silinfo$avg.width
+}
+
+# Plot silhouette width
+plot(1:10, sil_width, type = "b", xlab = "Number of clusters", ylab = "Silhouette Width", main = "Silhouette Method")
+
+```
+
+```{r}
+# Cut the dendrogram to form clusters
+hc_clusters <- cutree(hc, k = 3)
+
+# Create a data frame for visualization and analysis
+pca_data <- data.frame(pc$x[, 1:2], hc_cluster = as.factor(hc_clusters), country = rownames(socialism_df))
+
+# Visualize hierarchical clusters with PCA scores
+ggplot(pca_data, aes(x = PC1, y = PC2, color = hc_cluster, label = country)) +
+  geom_point(size = 2) +
+  geom_text_repel(size = 3, max.overlaps = 20) +
+  stat_ellipse(aes(group = hc_cluster), type = "norm", level = 0.95) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey", size = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey", size = 1) +
+  labs(title = "PCA Cluster Plot with Hierarchical Clusters",
+       x = "Principal Component 1",
+       y = "Principal Component 2") +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black", size = 0.5),
+        axis.ticks = element_line(color = "black", size = 0.5),
+        legend.title = element_text(size = 10), 
+        legend.text = element_text(size = 8))
+
+```
+
+Applying different Methods
+
+```{r}
+# Perform hierarchical clustering using Complete Method 
+hc_2 <- hclust(distance_matrix, method = "complete")
+
+```
+
+```{r}
+# Plot the dendrogram
+plot(hc_2, labels = rownames(socialism_df), main = "Dendrogram of Hierarchical Clustering", sub = "", xlab = "", ylab = "Height")
+```
+
+If we draw
+
+```{r}
+# Cut the dendrogram to form clusters
+hc_clusters_2 <- cutree(hc_2, k = 2)
+
+# Create a data frame for visualization and analysis
+pca_data <- data.frame(pc$x[, 1:2], hc_cluster_2 = as.factor(hc_clusters_2), country = rownames(socialism_df))
+
+# Visualize hierarchical clusters with PCA scores
+ggplot(pca_data, aes(x = PC1, y = PC2, color = hc_cluster_2, label = country)) +
+  geom_point(size = 2) +
+  geom_text_repel(size = 3, max.overlaps = 20) +
+  stat_ellipse(aes(group = hc_cluster_2), type = "norm", level = 0.95) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey", size = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey", size = 1) +
+  labs(title = "PCA Cluster Plot with Hierarchical Clusters",
+       x = "Principal Component 1",
+       y = "Principal Component 2") +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(color = "black", size = 0.5),
+        axis.ticks = element_line(color = "black", size = 0.5),
+        legend.title = element_text(size = 10), 
+        legend.text = element_text(size = 8))
+```
+
+# Top socialists country in the world
+
+in python
